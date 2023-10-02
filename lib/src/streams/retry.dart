@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:rxdart/src/utils/error_and_stacktrace.dart';
+import 'package:rxdart/src/utils/forwarding_sink.dart';
 
 /// Creates a [Stream] that will recreate and re-listen to the source
 /// [Stream] the specified number of times until the [Stream] terminates
@@ -31,14 +32,15 @@ class RetryStream<T> extends Stream<T> {
   final int? count;
 
   var _retryStep = 0;
-  final _errors = <ErrorAndStackTrace>[];
+  final List<ErrorAndStackTrace>? _errors;
+
   late final StreamController<T> _controller = StreamController<T>(
     sync: true,
     onListen: _retry,
     onPause: () => _subscription!.pause(),
     onResume: () => _subscription!.resume(),
     onCancel: () {
-      _errors.clear();
+      _errors?.clear();
       return _subscription?.cancel();
     },
   );
@@ -48,7 +50,8 @@ class RetryStream<T> extends Stream<T> {
   /// [Stream] (created by the provided factory method) the specified number
   /// of times until the [Stream] terminates successfully.
   /// If [count] is not specified, it retries indefinitely.
-  RetryStream(this.streamFactory, [this.count]);
+  RetryStream(this.streamFactory, [this.count])
+      : _errors = count == null ? null : [];
 
   @override
   StreamSubscription<T> listen(void Function(T event)? onData,
@@ -66,12 +69,10 @@ class RetryStream<T> extends Stream<T> {
       _subscription!.cancel();
       _subscription = null;
 
-      _errors.add(ErrorAndStackTrace(e, s));
+      _errors?.add(ErrorAndStackTrace(e, s));
 
       if (count == _retryStep) {
-        for (var e in [..._errors]) {
-          _controller.addError(e.error, e.stackTrace);
-        }
+        _errors?.forEach(_controller.addErrorAndStackTrace);
         _controller.close();
       } else {
         ++_retryStep;
